@@ -2,7 +2,8 @@
 
 A spring reverb time-effects box (VST3 + Standalone). It has three sections: Cho-Fla, Delay
 (Clean/BBD/Tape with Freeze) and a modelled spring tank with Drip, Boing, Dwell, Kick and a
-modulated pre-delay. See `docs/DESIGN.md`, and `docs/shots/` for the five UI themes.
+modulated pre-delay. The delay can sync to the host tempo, Freeze can latch or hold, and user
+presets can be saved. See `docs/DESIGN.md`, and `docs/shots/` for the five UI themes.
 
 ## Build
 

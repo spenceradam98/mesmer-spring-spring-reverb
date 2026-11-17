@@ -164,8 +164,26 @@ MesmerEditor::MesmerEditor (MesmerProcessor& p) : AudioProcessorEditor (&p), pro
     dlyFb = &knob (ids::dlyFeedback, "FEEDBACK", 1);
     dlyMix = &knob (ids::dlyMix, "MIX", 1);
     dlyOn = &toggle (ids::dlyOn, "ON", 1, "led");
-    freeze = &toggle (ids::dlyFreeze, "FREEZE", 1, "big");
     pingPong = &toggle (ids::dlyPingPong, "PING-PONG", 1, "led");
+    dlySync = &toggle (ids::dlySync, "SYNC", 1, "led");
+    dlyDivision = &choice (ids::dlyDivision, "NOTE");
+    freezeHold = &toggle (ids::freezeHold, "HOLD TO FREEZE", 1, "led");
+    freezeHold->button.setTooltip ("On: Freeze holds only while pressed. Off: click to latch.");
+
+    // Freeze: latching, or momentary while held (Hold mode, as on the hardware)
+    freeze.getProperties().set ("section", 1);
+    freeze.getProperties().set ("style", "big");
+    freeze.setClickingTogglesState (false);
+    freeze.onStateChange = [this]
+    {
+        const bool down = freeze.isDown();
+        if (down == freezeWasDown) return;
+        freezeWasDown = down;
+        const bool hold = proc.apvts.getRawParameterValue (ids::freezeHold)->load() > 0.5f;
+        if (hold) setFreeze (down);
+        else if (down) setFreeze (proc.apvts.getRawParameterValue (ids::dlyFreeze)->load() < 0.5f);
+    };
+    addAndMakeVisible (freeze);
     dlyMode = &choice (ids::dlyMode, "MODE");
 
     // spring
@@ -202,13 +220,33 @@ MesmerEditor::MesmerEditor (MesmerProcessor& p) : AudioProcessorEditor (&p), pro
     };
     addAndMakeVisible (kick);
 
-    // presets
+    // presets: factory list, then the user's saved presets (ids from 1000)
     addAndMakeVisible (presetBox);
     refreshPresetBox();
     presetBox.onChange = [this]
     {
         const int id = presetBox.getSelectedId();
-        if (id > 0) proc.setCurrentProgram (id - 1);
+        if (id >= 1000)
+        {
+            if (isPositiveAndBelow (id - 1000, userFiles.size())) proc.loadUserPreset (userFiles[id - 1000]);
+        }
+        else if (id > 0) proc.setCurrentProgram (id - 1);
+    };
+    addAndMakeVisible (savePreset);
+    savePreset.setTooltip ("Save the current sound as a user preset");
+    savePreset.onClick = [this]
+    {
+        auto folder = MesmerProcessor::getUserPresetFolder();
+        folder.createDirectory();
+        chooser = std::make_unique<FileChooser> ("Save preset", folder.getChildFile (proc.getPresetName() + ".mspreset"), "*.mspreset");
+        chooser->launchAsync (FileBrowserComponent::saveMode | FileBrowserComponent::canSelectFiles | FileBrowserComponent::warnAboutOverwriting,
+                              [this] (const FileChooser& fc)
+                              {
+                                  auto f = fc.getResult();
+                                  if (f == File()) return;
+                                  proc.saveUserPreset (f.withFileExtension ("mspreset"));
+                                  refreshPresetBox();
+                              });
     };
     for (auto* b : { &prevPreset, &nextPreset })
     {
@@ -216,7 +254,8 @@ MesmerEditor::MesmerEditor (MesmerProcessor& p) : AudioProcessorEditor (&p), pro
         b->onClick = [this, b]
         {
             const int n = proc.getNumPrograms();
-            const int next = (proc.getCurrentProgram() + (b == &nextPreset ? 1 : n - 1)) % n;
+            const int cur = jmax (0, proc.getCurrentProgram());
+            const int next = (cur + (b == &nextPreset ? 1 : n - 1)) % n;
             proc.setCurrentProgram (next);
             presetBox.setSelectedId (next + 1, dontSendNotification);
         };
@@ -231,6 +270,17 @@ MesmerEditor::MesmerEditor (MesmerProcessor& p) : AudioProcessorEditor (&p), pro
     applyTheme (proc.getThemeIndex());
     setSize (W, H);
     startTimerHz (30);
+}
+
+void MesmerEditor::setFreeze (bool on)
+{
+    if (auto* p = proc.apvts.getParameter (ids::dlyFreeze))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (on ? 1.0f : 0.0f);
+        p->endChangeGesture();
+    }
+    freeze.setToggleState (on, dontSendNotification);
 }
 
 MesmerEditor::~MesmerEditor()
@@ -291,7 +341,14 @@ void MesmerEditor::refreshPresetBox()
         if (cat != lastCat) { menu->addSectionHeader (cat); lastCat = cat; }
         menu->addItem (i + 1, ps[(size_t) i].name);
     }
-    presetBox.setSelectedId (proc.getCurrentProgram() + 1, dontSendNotification);
+    userFiles = MesmerProcessor::getUserPresets();
+    if (! userFiles.isEmpty())
+    {
+        menu->addSectionHeader ("User");
+        for (int i = 0; i < userFiles.size(); ++i) menu->addItem (1000 + i, userFiles[i].getFileNameWithoutExtension());
+    }
+    if (proc.getCurrentProgram() >= 0) presetBox.setSelectedId (proc.getCurrentProgram() + 1, dontSendNotification);
+    else presetBox.setText (proc.getPresetName(), dontSendNotification);
 }
 
 void MesmerEditor::applyTheme (int index)
@@ -323,6 +380,7 @@ void MesmerEditor::resized()
     prevPreset.setBounds (330, 18, 30, 28);
     presetBox.setBounds (364, 18, 260, 28);
     nextPreset.setBounds (628, 18, 30, 28);
+    savePreset.setBounds (664, 18, 56, 28);
     themeBox.setBounds (W - 300, 18, 150, 28);
     bypass->button.setBounds (W - 136, 16, 116, 32);
 
@@ -353,7 +411,10 @@ void MesmerEditor::resized()
         placeKnob (*dlyMix, x0, y0 + 128, k);
         dlyMode->box.setBounds (x1 - 4, y0 + 128 + 40, 96, 26);
         pingPong->button.setBounds (x1 - 4, y0 + 128 + 76, 110, 22);
-        freeze->button.setBounds (p.getX() + 20, y0 + 270, p.getWidth() - 40, 92);
+        dlySync->button.setBounds (x0 + 6, y0 + 262, 80, 24);
+        dlyDivision->box.setBounds (x1 - 4, y0 + 262, 96, 24);
+        freeze.setBounds (p.getX() + 20, y0 + 300, p.getWidth() - 40, 70);
+        freezeHold->button.setBounds (p.getX() + 24, y0 + 378, p.getWidth() - 40, 22);
     }
     // spring
     {
@@ -548,8 +609,20 @@ void MesmerEditor::timerCallback()
     inPeak = e.getInputPeak();
     kickShake = kick.isDown() ? 1.0f : kickShake * 0.9f;
 
-    if (presetBox.getSelectedId() != proc.getCurrentProgram() + 1)
-        presetBox.setSelectedId (proc.getCurrentProgram() + 1, dontSendNotification);
+    if (proc.getCurrentProgram() >= 0)
+    {
+        if (presetBox.getSelectedId() != proc.getCurrentProgram() + 1)
+            presetBox.setSelectedId (proc.getCurrentProgram() + 1, dontSendNotification);
+    }
+    else if (presetBox.getText() != proc.getPresetName())
+        presetBox.setText (proc.getPresetName(), dontSendNotification);
+
+    // Freeze lamp follows the parameter (host automation included); synced time dims the Time knob
+    const bool frozen = prm.getRawParameterValue (ids::dlyFreeze)->load() > 0.5f;
+    if (freeze.getToggleState() != frozen) freeze.setToggleState (frozen, dontSendNotification);
+    const bool synced = prm.getRawParameterValue (ids::dlySync)->load() > 0.5f;
+    dlyTime->slider.setAlpha (synced ? 0.35f : 1.0f);
+    dlyDivision->box.setAlpha (synced ? 1.0f : 0.45f);
 
     repaint (tankWindow);
     repaint (footer);

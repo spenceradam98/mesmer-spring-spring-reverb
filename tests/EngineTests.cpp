@@ -172,6 +172,17 @@ int main()
         CHECK (factoryPresets().size() >= 30, "expected at least 30 presets, have %d", (int) factoryPresets().size());
     }
 
+    // 11. tempo sync: note values follow the host tempo and always fit the delay line
+    {
+        Params p; p.dlySync = true; p.bpm = 120.0;
+        p.dlyDivision = 8;  CHECK (std::fabs (delayTimeMs (p) - 500.0) < 1e-9, "1/4 at 120 bpm should be 500 ms, got %g", delayTimeMs (p));
+        p.dlyDivision = 6;  CHECK (std::fabs (delayTimeMs (p) - 375.0) < 1e-9, "1/8D at 120 bpm should be 375 ms, got %g", delayTimeMs (p));
+        p.bpm = 40.0; p.dlyDivision = 10;
+        CHECK (std::fabs (delayTimeMs (p) - 750.0) < 1e-9, "1/2 at 40 bpm should halve to 750 ms, got %g", delayTimeMs (p));
+        p.dlySync = false; p.dlyTimeMs = 2000.0f;
+        CHECK (std::fabs (delayTimeMs (p) - 1000.0) < 1e-9, "free time should clamp to 1000 ms");
+    }
+
     // 10. mono processing (same pointer for both channels) works
     {
         auto e = make (wetSpring(), 48000.0);

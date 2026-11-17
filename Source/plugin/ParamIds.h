@@ -23,6 +23,9 @@ inline constexpr const char* dlyMix = "dlyMix";
 inline constexpr const char* dlyMode = "dlyMode";
 inline constexpr const char* dlyFreeze = "dlyFreeze";
 inline constexpr const char* dlyPingPong = "dlyPingPong";
+inline constexpr const char* dlySync = "dlySync";
+inline constexpr const char* dlyDivision = "dlyDivision";
+inline constexpr const char* freezeHold = "freezeHold";
 
 inline constexpr const char* revOn = "revOn";
 inline constexpr const char* revPre = "revPreDelay";

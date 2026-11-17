@@ -15,6 +15,18 @@ inline double softLimit (double x)
 inline double lerp (double a, double b, double t) { return a + (b - a) * t; }
 } // namespace
 
+double delayTimeMs (const Params& p)
+{
+    double ms = p.dlyTimeMs;
+    if (p.dlySync)
+    {
+        const int i = p.dlyDivision < 0 ? 0 : (p.dlyDivision >= kNumDivisions ? kNumDivisions - 1 : p.dlyDivision);
+        ms = kDivisions[i].beats * 60000.0 / clampd (p.bpm, 20.0, 400.0);
+        while (ms > 1000.0) ms *= 0.5;   // very slow tempos: halve until it fits the line
+    }
+    return clampd (ms, 40.0, 1000.0);
+}
+
 void Engine::prepare (double sampleRate, int)
 {
     fs = sampleRate;
@@ -56,7 +68,7 @@ void Engine::reset()
     sIn.reset (dbToGain (p.inputDb)); sOut.reset (dbToGain (p.outputDb)); sBypass.reset (p.bypass ? 1 : 0);
     sChoOn.reset (p.choOn ? 1 : 0); sDlyOn.reset (p.dlyOn ? 1 : 0); sRevOn.reset (p.revOn ? 1 : 0);
     sChoMix.reset (p.choMix); sDlyMix.reset (p.dlyMix); sRevAmt.reset (p.revAmount);
-    sDlyTime.reset (p.dlyTimeMs); sChoTime.reset (p.choTimeMs); sPre.reset (p.revPreDelayMs);
+    sDlyTime.reset (delayTimeMs (p)); sChoTime.reset (p.choTimeMs); sPre.reset (p.revPreDelayMs);
     sDwell.reset (p.revDwell); sFreeze.reset (p.dlyFreeze ? 1 : 0);
     for (int c = 0; c < 2; ++c)
     {
@@ -104,7 +116,7 @@ void Engine::processDelay (double& l, double& r)
     const double on = sDlyOn.process (p.dlyOn ? 1.0 : 0.0);
     const double mix = sDlyMix.process (p.dlyMix);
     const double frz = sFreeze.process (p.dlyFreeze ? 1.0 : 0.0);
-    double timeMs = sDlyTime.process (clampd (p.dlyTimeMs, 40.0, 1000.0));
+    double timeMs = sDlyTime.process (delayTimeMs (p));
 
     if (p.dlyMode == DelayMode::Tape)
         timeMs *= 1.0 + (1.0 - frz) * (0.0022 * tapeWow.process() + 0.0007 * tapeFlutter.process());

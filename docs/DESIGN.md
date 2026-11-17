@@ -30,9 +30,13 @@ little, which gives the swirl. Kick feeds a noise burst and a low thump into the
 - 32 factory presets in 5 categories, and 5 UI themes: Trance, Cream Tolex, Midnight Chrome, Mint Surf and Oxblood.
 - Engine tests at 44.1, 48 and 96 kHz cover decay, dispersion, bypass, delay timing, freeze in all 3 modes, Kick, width, and every preset staying bounded. The worst case uses about 6% of one core.
 
-## Open questions / next steps
+## Added in v0.2
 
-1. Freeze is a latching switch here. On the hardware it only holds while pressed. A momentary option could be added.
-2. Saving user presets. For now the host saves the plugin state.
-3. Tempo sync for delay time and LFO rates (the hardware has none).
-4. Installers, signing and a GitHub repo, when Adam asks.
+- **Hold to Freeze:** a switch under Freeze. When it's on, Freeze holds only while the pad is pressed, as on the hardware. When it's off, a click latches Freeze on and the next click releases it.
+- **Tempo sync for the delay:** a SYNC switch and a NOTE value from 1/32 to 1/2, with dotted and triplet values. Very slow tempos are halved until the time fits in 1 second.
+- **User presets:** SAVE writes a `.mspreset` file to the user's application-data folder (`MesmerAudio/Mesmer Spring/Presets`). Saved presets then appear in a "User" section of the preset menu. Input, Output, Bypass and Freeze are not stored in presets.
+
+## Next steps
+
+1. Tempo sync for the two LFO rates.
+2. Installers, signing and a GitHub repo.

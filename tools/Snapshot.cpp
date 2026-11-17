@@ -2,6 +2,7 @@
 // Usage: mesmer_snapshot <outdir> [presetIndex]
 #include "../Source/plugin/PluginProcessor.h"
 #include "../Source/plugin/PluginEditor.h"
+#include <cstdio>
 
 int main (int argc, char** argv)
 {
@@ -20,6 +21,20 @@ int main (int argc, char** argv)
         f.deleteFile();
         juce::FileOutputStream os (f);
         juce::PNGImageFormat().writeImageToStream (img, os);
+    }
+
+    // user preset round trip: save, change a parameter, load, and check it came back
+    {
+        auto f = juce::File::createTempFile (".mspreset");
+        auto* drip = proc.apvts.getParameter ("revDrip");
+        drip->setValueNotifyingHost (0.25f);
+        const bool saved = proc.saveUserPreset (f);
+        drip->setValueNotifyingHost (0.9f);
+        const bool loaded = proc.loadUserPreset (f);
+        const bool ok = saved && loaded && std::abs (drip->getValue() - 0.25f) < 1e-4f;
+        std::printf ("user preset round trip: %s\n", ok ? "ok" : "FAILED");
+        f.deleteFile();
+        if (! ok) return 1;
     }
     return 0;
 }

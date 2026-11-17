@@ -49,6 +49,14 @@ AudioProcessorValueTreeState::ParameterLayout MesmerProcessor::createLayout()
     choice (ids::dlyMode, "Delay Mode", { "Clean", "BBD", "Tape" }, (int) d.dlyMode);
     toggle (ids::dlyFreeze, "Delay Freeze", false);
     toggle (ids::dlyPingPong, "Delay Ping-Pong", d.dlyPingPong);
+    toggle (ids::dlySync, "Delay Tempo Sync", d.dlySync);
+    {
+        StringArray divs;
+        for (const auto& dv : ms::kDivisions) divs.add (dv.name);
+        choice (ids::dlyDivision, "Delay Sync Division", divs, d.dlyDivision);
+    }
+    // Hold: Freeze is on only while the button is held, as on the hardware. Latch: click on, click off.
+    toggle (ids::freezeHold, "Freeze Hold Mode", false);
 
     // spring reverb
     toggle (ids::revOn, "Spring On", d.revOn);
@@ -120,6 +128,9 @@ ms::Params MesmerProcessor::readParams() const
     p.dlyMode = (ms::DelayMode) jlimit (0, 2, idx (ids::dlyMode));
     p.dlyFreeze = on (ids::dlyFreeze);
     p.dlyPingPong = on (ids::dlyPingPong);
+    p.dlySync = on (ids::dlySync);
+    p.dlyDivision = idx (ids::dlyDivision);
+    p.bpm = hostBpm.load();
 
     p.revOn = on (ids::revOn);
     p.revPreDelayMs = v (ids::revPre);
@@ -151,6 +162,10 @@ void MesmerProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
     if (k && ! lastKick) engine.kickTank (1.0f);
     lastKick = k;
 
+    if (auto* ph = getPlayHead())
+        if (auto pos = ph->getPosition())
+            if (auto bpm = pos->getBpm()) hostBpm.store (*bpm);
+
     engine.setParams (readParams());
     float* l = buffer.getWritePointer (0);
     float* r = outCh > 1 ? buffer.getWritePointer (1) : l;
@@ -170,6 +185,7 @@ void MesmerProcessor::setCurrentProgram (int index)
     const auto& ps = ms::factoryPresets();
     if (! isPositiveAndBelow (index, (int) ps.size())) return;
     currentProgram = index;
+    presetName = ps[(size_t) index].name;
     const auto& p = ps[(size_t) index].p;
     auto set = [this] (const char* id, float value)
     {
@@ -188,6 +204,7 @@ void MesmerProcessor::setCurrentProgram (int index)
     set (ids::choWave, waveIndex (p.choWave, false));
     set (ids::dlyOn, p.dlyOn); set (ids::dlyTime, p.dlyTimeMs); set (ids::dlyFeedback, p.dlyFeedback);
     set (ids::dlyMix, p.dlyMix); set (ids::dlyMode, (float) p.dlyMode); set (ids::dlyPingPong, p.dlyPingPong);
+    set (ids::dlySync, p.dlySync); set (ids::dlyDivision, (float) p.dlyDivision);
     set (ids::revOn, p.revOn); set (ids::revPre, p.revPreDelayMs); set (ids::revDepth, p.revDepth);
     set (ids::revRate, p.revRateHz); set (ids::revWave, waveIndex (p.revWave, true)); set (ids::revAmount, p.revAmount);
     set (ids::revDecay, p.revDecayS); set (ids::revDwell, p.revDwell); set (ids::revDrip, p.revDrip);
@@ -200,6 +217,7 @@ void MesmerProcessor::getStateInformation (MemoryBlock& destData)
     auto state = apvts.copyState();
     state.setProperty ("program", currentProgram, nullptr);
     state.setProperty ("theme", themeIndex, nullptr);
+    state.setProperty ("presetName", presetName, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary (*xml, destData);
 }
 
@@ -211,8 +229,65 @@ void MesmerProcessor::setStateInformation (const void* data, int sizeInBytes)
             auto tree = ValueTree::fromXml (*xml);
             currentProgram = tree.getProperty ("program", 0);
             themeIndex = tree.getProperty ("theme", 0);
+            presetName = tree.getProperty ("presetName", getProgramName (currentProgram)).toString();
             apvts.replaceState (tree);
         }
+}
+
+// ---------------------------------------------------------------- user presets
+// Stored as XML (*.mspreset) in the user's application-data folder, one file per preset.
+// Input, Output, Bypass, Freeze and Kick are performance controls and are not saved or recalled.
+static bool isPerformanceParam (const String& id)
+{
+    return id == ids::input || id == ids::output || id == ids::bypass || id == ids::dlyFreeze || id == ids::kick || id == ids::freezeHold;
+}
+
+File MesmerProcessor::getUserPresetFolder()
+{
+    return File::getSpecialLocation (File::userApplicationDataDirectory)
+        .getChildFile ("MesmerAudio").getChildFile ("Mesmer Spring").getChildFile ("Presets");
+}
+
+Array<File> MesmerProcessor::getUserPresets()
+{
+    auto files = getUserPresetFolder().findChildFiles (File::findFiles, false, "*.mspreset");
+    files.sort();
+    return files;
+}
+
+bool MesmerProcessor::saveUserPreset (const File& file)
+{
+    XmlElement root ("MesmerSpringPreset");
+    root.setAttribute ("version", 1);
+    for (auto* prm : getParameters())
+        if (auto* r = dynamic_cast<RangedAudioParameter*> (prm))
+            if (! isPerformanceParam (r->getParameterID()))
+            {
+                auto* e = root.createNewChildElement ("PARAM");
+                e->setAttribute ("id", r->getParameterID());
+                e->setAttribute ("value", (double) r->convertFrom0to1 (r->getValue()));
+            }
+    file.getParentDirectory().createDirectory();
+    if (! root.writeTo (file)) return false;
+    currentProgram = -1;
+    presetName = file.getFileNameWithoutExtension();
+    return true;
+}
+
+bool MesmerProcessor::loadUserPreset (const File& file)
+{
+    auto xml = parseXML (file);
+    if (xml == nullptr || ! xml->hasTagName ("MesmerSpringPreset")) return false;
+    for (auto* e : xml->getChildWithTagNameIterator ("PARAM"))
+    {
+        const auto id = e->getStringAttribute ("id");
+        if (isPerformanceParam (id)) continue;
+        if (auto* prm = apvts.getParameter (id))   // unknown ids (from newer versions) are skipped
+            prm->setValueNotifyingHost (prm->convertTo0to1 ((float) e->getDoubleAttribute ("value")));
+    }
+    currentProgram = -1;
+    presetName = file.getFileNameWithoutExtension();
+    return true;
 }
 
 AudioProcessorEditor* MesmerProcessor::createEditor() { return new MesmerEditor (*this); }

@@ -24,6 +24,15 @@ namespace ms
 enum class DelayMode { Clean = 0, Bbd, Tape };
 enum class Routing { ChoDlyRev = 0, ChoRevDly, RevChoDly };
 
+// Tempo-sync note values, in quarter-note beats.
+struct Division { const char* name; double beats; };
+inline constexpr Division kDivisions[] = {
+    { "1/32", 0.125 }, { "1/16T", 1.0 / 6.0 }, { "1/16", 0.25 }, { "1/16D", 0.375 }, { "1/8T", 1.0 / 3.0 },
+    { "1/8", 0.5 }, { "1/8D", 0.75 }, { "1/4T", 2.0 / 3.0 }, { "1/4", 1.0 }, { "1/4D", 1.5 }, { "1/2", 2.0 },
+};
+inline constexpr int kNumDivisions = (int) (sizeof (kDivisions) / sizeof (kDivisions[0]));
+
+
 struct Params
 {
     // ---- global ----
@@ -49,6 +58,9 @@ struct Params
     DelayMode dlyMode = DelayMode::Bbd;
     bool dlyFreeze = false;
     bool dlyPingPong = true;
+    bool dlySync = false;           // lock the delay time to the host tempo
+    int dlyDivision = 6;            // index into kDivisions (default 1/8 dotted)
+    double bpm = 120.0;             // host tempo (set by the plugin each block)
 
     // ---- spring reverb ----
     bool revOn = true;
@@ -65,6 +77,9 @@ struct Params
     float revWidth = 0.0f;          // 0 = mono tank (as hardware) .. 1 = wide twin tank
     TankType tank = TankType::Medium;
 };
+
+// Delay time in ms for the current settings (synced or free), clamped to the delay's range.
+double delayTimeMs (const Params& p);
 
 class Engine
 {

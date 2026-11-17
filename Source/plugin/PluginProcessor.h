@@ -40,6 +40,13 @@ public:
     void kickTank() { engine.kickTank (1.0f); }
     const ms::Engine& getEngine() const { return engine; }
     int getThemeIndex() const { return themeIndex; }
+    const juce::String& getPresetName() const { return presetName; }
+
+    // user presets
+    static juce::File getUserPresetFolder();
+    static juce::Array<juce::File> getUserPresets();
+    bool saveUserPreset (const juce::File&);
+    bool loadUserPreset (const juce::File&);
     void setThemeIndex (int t) { themeIndex = t; }
 
     juce::AudioProcessorValueTreeState apvts;
@@ -52,6 +59,8 @@ private:
     int currentProgram = 0;
     int themeIndex = 0;
     bool lastKick = false;
+    juce::String presetName { "Init Spring" };
+    std::atomic<double> hostBpm { 120.0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MesmerProcessor)
 };

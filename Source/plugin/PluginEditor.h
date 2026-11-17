@@ -73,11 +73,16 @@ private:
     Knob *dlyTime, *dlyFb, *dlyMix;
     Knob *revPre, *revDepth, *revRate, *revAmount, *revDecay, *revDwell, *revDrip, *revBoing, *revTone, *revWidth;
     Knob *input, *output;
-    Toggle *choOn, *dlyOn, *revOn, *freeze, *pingPong, *bypass;
-    Choice *choWave, *dlyMode, *revWave, *revTank, *routing;
+    Toggle *choOn, *dlyOn, *revOn, *pingPong, *bypass, *dlySync, *freezeHold;
+    Choice *choWave, *dlyMode, *revWave, *revTank, *routing, *dlyDivision;
 
     juce::ComboBox presetBox, themeBox;
-    juce::TextButton prevPreset { "<" }, nextPreset { ">" }, kick { "KICK" };
+    juce::TextButton prevPreset { "<" }, nextPreset { ">" }, savePreset { "SAVE" }, kick { "KICK" };
+    juce::ToggleButton freeze { "FREEZE" };   // driven by hand: latching or hold-to-freeze
+    bool freezeWasDown = false;
+    juce::Array<juce::File> userFiles;
+    std::unique_ptr<juce::FileChooser> chooser;
+    void setFreeze (bool on);
 
     juce::Rectangle<int> choPanel, dlyPanel, revPanel, tankWindow, footer;
     float spiralAngle = 0, tankAngle = 0, revLevel = 0, kickShake = 0, inPeak = 0;
